@@ -1,0 +1,265 @@
+<template>
+    <div>
+      <div class="loading" v-show="isloading">
+      <Loading class="_load" type='spin' :size="{width: '60px', height: '60px'}"></Loading>
+      <p>加载中</p>
+      </div>
+      <div v-if="pdfViewer" class="toolbar">
+      </div>
+      
+     <div id="viewerContainer">
+           <div ref='pagesviewer' class="pdfViewer"></div>
+    </div>
+    </div>
+</template>
+<script>
+import * as pdfjsDistBuildPdf from "pdfjs-own/build/pdf.js";
+import * as pdfjsDistWebPdfViewer from "pdfjs-own/web/pdf_viewer.js";
+import Loading from "vue-loading-template";
+import "pdfjs-own/web/pdf_viewer.css";
+export default {
+  name: "pdfviewMuti",
+  props: {
+    src: {
+      type: [Array],
+      default: []
+    },
+    startnum: {
+      type: [Number],
+      default: 1
+    },
+    initPage: {
+      type: [Number],
+      default: 1
+    }
+  },
+  components: {
+    Loading
+  },
+  data() {
+    return {
+      pdfViewer: null,
+      pdfLinkService: null,
+      txtmode: 1,
+      DEFAULT_SCALE_DELTA: 1.1,
+      MIN_SCALE: 0.25,
+      MAX_SCALE: 10.0,
+      DEFAULT_SCALE_VALUE: "auto",
+      current_page: 1,
+      isrender: false,
+      compantid: 0,
+      current_file: 0,
+      pageoffile: 5,
+      isloading: false,
+      renderquen: [],
+      current_pagecount: 0,
+      loadedfile: [],
+      maxpage_num: 0,
+      minpage_num: null
+    };
+  },
+  methods: {
+    zoomin(ticks) {
+      let newScale = this.pdfViewer.currentScale;
+      do {
+        newScale = (newScale * this.DEFAULT_SCALE_DELTA).toFixed(2);
+        newScale = Math.ceil(newScale * 10) / 10;
+        newScale = Math.min(this.MAX_SCALE, newScale);
+      } while (--ticks && newScale < this.MAX_SCALE);
+      this.pdfViewer.currentScaleValue = newScale;
+    },
+    zoomout(ticks) {
+      let newScale = this.pdfViewer.currentScale;
+      do {
+        newScale = (newScale / this.DEFAULT_SCALE_DELTA).toFixed(2);
+        newScale = Math.floor(newScale * 10) / 10;
+        newScale = Math.max(this.MIN_SCALE, newScale);
+      } while (--ticks && newScale > this.MIN_SCALE);
+      this.pdfViewer.currentScaleValue = newScale;
+    },
+    pagechange(evt) {
+      if (evt.in) {
+        this.current_page = ~~evt.page_num;
+        this.$emit("pagechange", this.current_page);
+      }
+    },
+    async initrenders() {
+      return new Promise((resolve, reject) => {
+        pdfjsDistBuildPdf.GlobalWorkerOptions.workerSrc =
+          "pdfjs-own/build/pdf.worker.js";
+        let container = document.getElementById("viewerContainer");
+        let pdfLinkService = new pdfjsDistWebPdfViewer.PDFLinkService();
+        let pdfViewer = new pdfjsDistWebPdfViewer.PDFViewer({
+          container: container,
+          linkService: pdfLinkService,
+          textLayerMode: this.txtmode
+        });
+        this.pdfViewer = pdfViewer;
+        pdfLinkService.setViewer(pdfViewer);
+        container.addEventListener("pagesinit", () => {
+          pdfViewer.currentScaleValue = "page-width";
+        });
+        this.pdfViewer = pdfViewer;
+        this.pdfLinkService = pdfLinkService;
+        resolve(true);
+      });
+    },
+    loadingpdf(url) {
+      return new Promise((resolve, reject) => {
+        let CMAP_URL = "pdfjs-dist/cmaps/";
+        let CMAP_PACKED = true;
+        let loadingtask = pdfjsDistBuildPdf.getDocument({
+          url: url,
+          cMapUrl: CMAP_URL,
+          cMapPacked: CMAP_PACKED
+        });
+        loadingtask.onProgress = progressData => {
+          this.$emit("onProgress", progressData);
+        };
+        loadingtask.then(pdfDocument => {
+          resolve(pdfDocument);
+        });
+      });
+    },
+    pdfrender(file_num, preload = false, topage) {
+      let current_file = this.getfileofpage(this.current_page);
+      if (this.loadedfile.indexOf(file_num) < 0) {
+        this.loadedfile.push(file_num);
+        return async () => {
+          let url = this.src[file_num];
+          this.isrender = true;
+          this.isloading = !preload;
+          let pdfDocument = await this.loadingpdf(url);
+          this.pdfViewer.setDocument(pdfDocument, file_num < current_file);
+          this.pdfLinkService.setDocument(pdfDocument, null);
+          await this.pdfViewer.pagesPromise;
+          this.addpagelinstener(file_num);
+          this.isloading = false;
+          this.isrender = false;
+          if (topage) this.jumpnum(topage);
+        };
+      } else return null;
+    },
+    addpagelinstener(file_num) {
+      let pages_div = this.$refs["pagesviewer"].children;
+      let io = new IntersectionObserver(e => {
+        this.pagechange({
+          page_num: e[0].target.attributes["page-num"].value,
+          action: e[0].isIntersecting ? "in" : "out",
+          in: e[0].isIntersecting
+        });
+      });
+      for (let i = 0; i < pages_div.length; i++) {
+        let page = pages_div[i];
+        let isload = page.attributes["isload"];
+        if (!isload) {
+          let pagenum = page.attributes["data-page-number"].value;
+          pagenum = this.getrealpage(file_num, ~~pagenum);
+          page.setAttribute("page-num", pagenum);
+          page.id = "page_num_" + pagenum;
+          if (!this.minpage_num) this.minpage_num = pagenum;
+          else this.minpage_num = Math.min(this.minpage_num, pagenum);
+          this.maxpage_num = Math.max(this.maxpage_num, pagenum);
+          io.observe(page);
+          page.setAttribute("isload", true);
+        }
+      }
+    },
+    async runrenderquen(promise) {
+      if (this.isrender) {
+        if (promise) this.renderquen.push(promise);
+        return;
+      } else {
+        if (promise) this.renderquen.push(promise);
+        if (this.renderquen.length > 0) {
+          await this.renderquen.shift()();
+          this.runrenderquen();
+        }
+      }
+    },
+    getfileofpage(page_num) {
+      let filenum =
+        Math.ceil((page_num - (this.startnum - 1)) / this.pageoffile) - 1;
+      return filenum < 0 ? 0 : filenum;
+    },
+    getrealpage(file_num, page_num) {
+      return this.startnum - 1 + file_num * this.pageoffile + page_num;
+    },
+    jumpnum(num) {
+      let fileofnum = this.getfileofpage(num);
+      if (fileofnum > this.src.length - 1) {
+        this.$emit("exception", "页面不存在");
+        alert("页面不存在");
+        return;
+      }
+      if (this.loadedfile.indexOf(fileofnum) < 0) {
+        this.resetviewer();
+        this.runrenderquen(this.pdfrender(fileofnum, false, num));
+      } else
+        this.$nextTick(() => {
+          eval(`document.getElementById('page_num_${num}').scrollIntoView()`);
+        });
+    },
+    resetviewer() {
+      this.minpage_num = null;
+      this.maxpage_num = 0;
+      this.loadedfile = [];
+      this.$refs.pagesviewer.innerHTML = "";
+    }
+  },
+  async mounted() {
+    this.current_pagecount = this.startnum - 1;
+    await this.initrenders();
+    this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+  },
+  watch: {
+    current_page: function(val, oldval) {
+      let pagetoend = ~~this.maxpage_num - ~~val;
+      let pagetostart = ~~val - ~~this.minpage_num;
+      let current_file = this.getfileofpage(val);
+      if (pagetoend === 3 || pagetoend === 0) {
+        if (this.src.length - 1 > current_file) {
+          this.runrenderquen(this.pdfrender(current_file + 1, pagetoend === 3));
+        }
+      }
+      if (pagetostart === 3 || pagetostart === 0) {
+        if (current_file > 0) {
+          this.runrenderquen(
+            this.pdfrender(current_file - 1, pagetostart === 3)
+          );
+        }
+      }
+    },
+    isloading: function(val, oldval) {
+      this.$emit("loading", val);
+    }
+  }
+};
+</script>
+
+<style>
+.toolbar {
+  position: fixed;
+  top: 30px;
+  z-index: 10;
+}
+.loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.692);
+  z-index: 15;
+  justify-content: center;
+}
+.loading ._load {
+  margin: 10px;
+}
+.loading p {
+  font-size: 1.5em;
+}
+</style>
