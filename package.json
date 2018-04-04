@@ -1,7 +1,7 @@
 {
   "name": "pdf-viewer-muti",
-  "description": "A Vue.js project",
-  "version": "1.0.5",
+  "description": "多文件pdf 连续加载",
+  "version": "1.0.8",
   "author": "apcan",
   "license": "MIT",
   "scripts": {
@@ -9,6 +9,7 @@
     "build": "cross-env NODE_ENV=production webpack --progress --hide-modules"
   },
   "dependencies": {
+    "axios": "^0.18.0",
     "pdfjs-own": "0.0.1",
     "vue-loading-template": "^0.1.7"
   },

@@ -1,28 +1,48 @@
 <template>
     <div>
-      <div class="loading" v-show="isloading">
-      <Loading class="_load" type='spin' :size="{width: '60px', height: '60px'}"></Loading>
-      <p>加载中</p>
+      <div v-show="isloading">
+          <slot name="loading-view"  >
+          <div class="loading">
+          <Loading class="_load" type='spin' :size="{width: '60px', height: '60px'}"></Loading>
+          <p>加载中</p>
+          </div>
+        </slot>
       </div>
-      <div v-if="pdfViewer" class="toolbar">
-      </div>
-      
+       <div v-show="iscutting">
+          <slot name="cutting-view"  >
+            <div class="cutting">
+              <Loading class="_load" :size="{width: '60px', height: '60px'}"></Loading>
+              <p>文件正在切割</p>
+            </div>
+          </slot>
+       </div>
+       <div v-show="notfound">
+          <slot name="nofound-view"  >
+            <div class="nofound">
+              <img :src="svg" :style="{width: '60px', height: '60px'}">
+              <p>文件不存在或切割失败!</p>
+            </div>
+          </slot>
+       </div>
      <div id="viewerContainer">
            <div ref='pagesviewer' class="pdfViewer"></div>
     </div>
+    
     </div>
 </template>
 <script>
+import axios from "axios";
 import * as pdfjsDistBuildPdf from "pdfjs-own/build/pdf.js";
 import * as pdfjsDistWebPdfViewer from "pdfjs-own/web/pdf_viewer.js";
 import Loading from "vue-loading-template";
 import "pdfjs-own/web/pdf_viewer.css";
+import * as svg from "./assets/loadfail.svg";
+const get = (_url, obj) => axios(_url, { params: obj });
 export default {
   name: "pdfviewMuti",
   props: {
     src: {
-      type: [Array],
-      default: []
+      type: [Array]
     },
     startnum: {
       type: [Number],
@@ -31,6 +51,14 @@ export default {
     initPage: {
       type: [Number],
       default: 1
+    },
+    IDSrc: {
+      type: [String],
+      default: ""
+    },
+    baseUrl: {
+      type: [String],
+      default: ""
     }
   },
   components: {
@@ -38,6 +66,9 @@ export default {
   },
   data() {
     return {
+      urls: [],
+      svg,
+      mode: 0, //0:src mode | 1:id mode
       pdfViewer: null,
       pdfLinkService: null,
       txtmode: 1,
@@ -52,13 +83,19 @@ export default {
       pageoffile: 5,
       isloading: false,
       renderquen: [],
-      current_pagecount: 0,
       loadedfile: [],
       maxpage_num: 0,
-      minpage_num: null
+      minpage_num: null,
+      iscutting: false,
+      notfound: false,
+      btnclass: ["btn"]
     };
   },
   methods: {
+    _getpdfstatus: (baseurl, file_id, opt = {}) =>
+      get(`${baseurl}/pdf/status/${file_id}`, { ...opt }),
+    _getpdffile: (baseurl, type, id, opt = {}) =>
+      get(`${baseurl}/pdf/get/${type}/${id}`, { ...opt }),
     zoomin(ticks) {
       let newScale = this.pdfViewer.currentScale;
       do {
@@ -126,7 +163,7 @@ export default {
       if (this.loadedfile.indexOf(file_num) < 0) {
         this.loadedfile.push(file_num);
         return async () => {
-          let url = this.src[file_num];
+          let url = this.urls[file_num];
           this.isrender = true;
           this.isloading = !preload;
           let pdfDocument = await this.loadingpdf(url);
@@ -187,7 +224,7 @@ export default {
     },
     jumpnum(num) {
       let fileofnum = this.getfileofpage(num);
-      if (fileofnum > this.src.length - 1) {
+      if (fileofnum > this.urls.length - 1) {
         this.$emit("exception", "页面不存在");
         alert("页面不存在");
         return;
@@ -205,12 +242,75 @@ export default {
       this.maxpage_num = 0;
       this.loadedfile = [];
       this.$refs.pagesviewer.innerHTML = "";
+    },
+    async delay(t = 5 * 1000) {
+      return new Promise((r, e) => {
+        setTimeout(() => {
+          r();
+        }, t);
+      });
+    },
+    /**pdf file view back control*/
+    async getpdfstatus(file_id) {
+      let pdfstatus = await this._getpdfstatus(this.baseUrl, file_id);
+      pdfstatus = pdfstatus.data;
+      if (pdfstatus.code === 0) {
+        return pdfstatus.data;
+      } else {
+        throw new Error(pdfstatus.msg);
+      }
+    },
+    async getpdffile(file_id) {
+      let pdf_children = await this._getpdffile(this.baseUrl, "split", file_id);
+      pdf_children = pdf_children.data;
+      if (pdf_children.code === 0) {
+        return pdf_children.data.children;
+      } else {
+        throw new Error(pdf_children.msg);
+      }
+    },
+    makeurl(child_id) {
+      return `${this.baseUrl}/pdf/get/child/${child_id}`;
+    },
+    /**pdf load mode id */
+    async loadfromid(file_id) {
+      try {
+        let pdfstatus = await this.getpdfstatus(file_id);
+        if (pdfstatus.cut === 2) {
+          this.isloading = false;
+          this.notfound = false;
+          this.iscutting = true;
+          await this.delay();
+          loadfromid(file_id);
+        } else if (pdfstatus.cut === 1) {
+          let pdfchildren = await this.getpdffile(file_id);
+          this.urls = pdfchildren.map(c => this.makeurl(c));
+          this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+        } else {
+          this.isloading = false;
+          this.notfound = true;
+          this.iscutting = false;
+        }
+      } catch (error) {
+        this.$emit("exception", error);
+        this.notfound = true;
+      }
     }
   },
   async mounted() {
-    this.current_pagecount = this.startnum - 1;
+    this.urls = this.src;
     await this.initrenders();
-    this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+    if (this.urls) this.mode = 0;
+    else if (this.IDSrc && this.baseUrl) this.mode = 1;
+    else {
+      this.$emit("exception", "参数不完整");
+      return;
+    }
+    if (this.mode == 1) {
+      await this.loadfromid(this.IDSrc);
+    } else {
+      this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+    }
   },
   watch: {
     current_page: function(val, oldval) {
@@ -218,7 +318,7 @@ export default {
       let pagetostart = ~~val - ~~this.minpage_num;
       let current_file = this.getfileofpage(val);
       if (pagetoend === 3 || pagetoend === 0) {
-        if (this.src.length - 1 > current_file) {
+        if (this.urls.length - 1 > current_file) {
           this.runrenderquen(this.pdfrender(current_file + 1, pagetoend === 3));
         }
       }
@@ -232,6 +332,17 @@ export default {
     },
     isloading: function(val, oldval) {
       this.$emit("loading", val);
+    },
+    IDSrc: function(val, oldval) {
+      if (this.mode === 0) return;
+      this.resetviewer();
+      this.loadfromid(this.IDSrc);
+    },
+    src: function(val, oldval) {
+      if (this.mode === 1) return;
+      this.resetviewer();
+      this.urls = this.src;
+      this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
     }
   }
 };
@@ -261,5 +372,37 @@ export default {
 }
 .loading p {
   font-size: 1.5em;
+}
+
+.cutting {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.cutting p {
+  font-size: 1.5em;
+  margin-top: 50px;
+}
+
+.nofound {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.nofound p {
+  font-size: 1.5em;
+}
+.btn {
+  width: 85px;
+  height: 35px;
+  border-radius: 5px;
+  border-width: 0px;
+  background-color: rgb(90, 193, 221);
+  color: white;
+}
+.btn:hover {
+  background-color: rgb(112, 206, 231);
 }
 </style>

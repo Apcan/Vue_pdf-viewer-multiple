@@ -32,6 +32,12 @@ components: {
 - src
     - Array 所有文件按顺序排列的url地址
 
+- IDSrc
+    - 传入pdf file id
+
+- baseUrl
+    - pdf平台请求基础地址 exp:http://xxxx/api
+
 - startnum
     - 起始页
 
@@ -42,3 +48,18 @@ components: {
 
 - jumpnum
     - num 传入需要前往的页码可以跳转到相应的页码
+
+
+# Slot
+
+- loading-view
+
+    - 加载中的view 通过slot传入
+
+- cutting-view
+
+    - 切割中的view 通过slot传入
+
+- nofound-view
+
+    - 失败的view 通过slot传入
