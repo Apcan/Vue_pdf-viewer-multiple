@@ -1,6 +1,6 @@
 <template>
     <div>
-      <div v-show="isloading">
+      <div v-if="showloading" v-show="isloading">
           <slot name="loading-view"  >
           <div class="loading">
           <Loading class="_load" type='spin' :size="{width: '60px', height: '60px'}"></Loading>
@@ -59,6 +59,14 @@ export default {
     baseUrl: {
       type: [String],
       default: ""
+    },
+    showloading: {
+      type: [Boolean],
+      default: true
+    },
+    debug: {
+      type: [Boolean],
+      default: false
     }
   },
   components: {
@@ -173,6 +181,8 @@ export default {
           this.addpagelinstener(file_num);
           this.isloading = false;
           this.isrender = false;
+          this.notfound = false;
+          this.iscutting = false;
           if (topage) this.jumpnum(topage);
         };
       } else return null;
@@ -281,10 +291,12 @@ export default {
           this.notfound = false;
           this.iscutting = true;
           await this.delay();
-          loadfromid(file_id);
+          this.loadfromid(file_id);
         } else if (pdfstatus.cut === 1) {
           let pdfchildren = await this.getpdffile(file_id);
-          this.urls = pdfchildren.map(c => this.makeurl(c));
+          this.urls = pdfchildren.map(
+            c => (c.cosurl ? c.cosurl : this.makeurl(c._id))
+          );
           this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
         } else {
           this.isloading = false;
@@ -298,18 +310,17 @@ export default {
     }
   },
   async mounted() {
+    if (this.debug) console.log("debug!");
     this.urls = this.src;
+    this.isloading = true;
     await this.initrenders();
-    if (this.urls) this.mode = 0;
-    else if (this.IDSrc && this.baseUrl) this.mode = 1;
-    else {
-      this.$emit("exception", "参数不完整");
-      return;
-    }
-    if (this.mode == 1) {
+    if (this.urls)
+      this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+    else if (this.IDSrc && this.baseUrl) {
       await this.loadfromid(this.IDSrc);
     } else {
-      this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
+      this.$emit("exception", "参数不完整");
+      return;
     }
   },
   watch: {
@@ -334,12 +345,10 @@ export default {
       this.$emit("loading", val);
     },
     IDSrc: function(val, oldval) {
-      if (this.mode === 0) return;
       this.resetviewer();
       this.loadfromid(this.IDSrc);
     },
     src: function(val, oldval) {
-      if (this.mode === 1) return;
       this.resetviewer();
       this.urls = this.src;
       this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
