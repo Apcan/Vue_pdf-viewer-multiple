@@ -44,6 +44,8 @@ components: {
 - showloading
     - true/false 是否使用loading记载动画
 
+- size
+    - :size="{width:'800px',height:'1300px'}"定义预览界面的宽高
 # Method
 
 - jumpnum

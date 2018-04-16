@@ -1,5 +1,5 @@
 <template>
-    <div>
+    <div :style='size' :class="size?'pdf-w':''" @scroll="ms" style="position:relative" >
       <div v-if="showloading" v-show="isloading">
           <slot name="loading-view"  >
           <div class="loading">
@@ -25,7 +25,7 @@
           </slot>
        </div>
      <div id="viewerContainer">
-           <div ref='pagesviewer' class="pdfViewer"></div>
+           <div ref='pagesviewer' class="pdfViewer"   ></div>
     </div>
     
     </div>
@@ -67,6 +67,10 @@ export default {
     debug: {
       type: [Boolean],
       default: false
+    },
+    size: {
+      type: [Object],
+      default: null
     }
   },
   components: {
@@ -123,15 +127,11 @@ export default {
       this.pdfViewer.currentScaleValue = newScale;
     },
     pagechange(evt) {
-      if (evt.in) {
-        this.current_page = ~~evt.page_num;
-        this.$emit("pagechange", this.current_page);
-      }
+      this.current_page = ~~evt.page_num;
+      this.$emit("pagechange", this.current_page);
     },
     async initrenders() {
       return new Promise((resolve, reject) => {
-        pdfjsDistBuildPdf.GlobalWorkerOptions.workerSrc =
-          "pdfjs-own/build/pdf.worker.js";
         let container = document.getElementById("viewerContainer");
         let pdfLinkService = new pdfjsDistWebPdfViewer.PDFLinkService();
         let pdfViewer = new pdfjsDistWebPdfViewer.PDFViewer({
@@ -174,12 +174,14 @@ export default {
           let url = this.urls[file_num];
           this.isrender = true;
           this.isloading = !preload;
+          this.$emit("loading", true);
           let pdfDocument = await this.loadingpdf(url);
           this.pdfViewer.setDocument(pdfDocument, file_num < current_file);
           this.pdfLinkService.setDocument(pdfDocument, null);
           await this.pdfViewer.pagesPromise;
           this.addpagelinstener(file_num);
           this.isloading = false;
+          this.$emit("loading", false);
           this.isrender = false;
           this.notfound = false;
           this.iscutting = false;
@@ -189,13 +191,16 @@ export default {
     },
     addpagelinstener(file_num) {
       let pages_div = this.$refs["pagesviewer"].children;
-      let io = new IntersectionObserver(e => {
-        this.pagechange({
-          page_num: e[0].target.attributes["page-num"].value,
-          action: e[0].isIntersecting ? "in" : "out",
-          in: e[0].isIntersecting
-        });
-      });
+      let io = null;
+      // try {
+      //   io = new IntersectionObserver(e => {
+      //     this.pagechange({
+      //       page_num: e[0].target.attributes["page-num"].value,
+      //       action: e[0].isIntersecting ? "in" : "out",
+      //       in: e[0].isIntersecting
+      //     });
+      //   });
+      // } catch (err) {}
       for (let i = 0; i < pages_div.length; i++) {
         let page = pages_div[i];
         let isload = page.attributes["isload"];
@@ -207,7 +212,7 @@ export default {
           if (!this.minpage_num) this.minpage_num = pagenum;
           else this.minpage_num = Math.min(this.minpage_num, pagenum);
           this.maxpage_num = Math.max(this.maxpage_num, pagenum);
-          io.observe(page);
+          // if (io) io.observe(page);
           page.setAttribute("isload", true);
         }
       }
@@ -274,6 +279,7 @@ export default {
       let pdf_children = await this._getpdffile(this.baseUrl, "split", file_id);
       pdf_children = pdf_children.data;
       if (pdf_children.code === 0) {
+        this.pageoffile = pdf_children.data.pageoffile;
         return pdf_children.data.children;
       } else {
         throw new Error(pdf_children.msg);
@@ -288,6 +294,7 @@ export default {
         let pdfstatus = await this.getpdfstatus(file_id);
         if (pdfstatus.cut === 2) {
           this.isloading = false;
+          this.$emit("loading", false);
           this.notfound = false;
           this.iscutting = true;
           await this.delay();
@@ -300,6 +307,7 @@ export default {
           this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
         } else {
           this.isloading = false;
+          this.$emit("loading", false);
           this.notfound = true;
           this.iscutting = false;
         }
@@ -307,12 +315,33 @@ export default {
         this.$emit("exception", error);
         this.notfound = true;
       }
+    },
+    ms(e) {
+      let sctop = e.srcElement.scrollTop;
+      let cutpagenum = this.issee(sctop);
+      if (this.current_page != cutpagenum)
+        this.pagechange({
+          page_num: cutpagenum,
+          action: "in"
+        });
+    },
+    issee(sctop) {
+      let currentpagenum = 1;
+      let pages_div = this.$refs["pagesviewer"].children;
+      for (let i = 0; i < pages_div.length; i++) {
+        let page = pages_div[i];
+        let ptop = page.offsetTop;
+        if (sctop - ptop > 0) currentpagenum = page.getAttribute("page-num");
+        else break;
+      }
+      return currentpagenum;
     }
   },
   async mounted() {
     if (this.debug) console.log("debug!");
     this.urls = this.src;
     this.isloading = true;
+    this.$emit("loading", true);
     await this.initrenders();
     if (this.urls)
       this.runrenderquen(this.pdfrender(this.getfileofpage(this.initPage)));
@@ -328,21 +357,26 @@ export default {
       let pagetoend = ~~this.maxpage_num - ~~val;
       let pagetostart = ~~val - ~~this.minpage_num;
       let current_file = this.getfileofpage(val);
-      if (pagetoend === 3 || pagetoend === 0) {
+      if (pagetoend === Math.ceil(this.pageoffile / 2) || pagetoend === 0) {
         if (this.urls.length - 1 > current_file) {
-          this.runrenderquen(this.pdfrender(current_file + 1, pagetoend === 3));
-        }
-      }
-      if (pagetostart === 3 || pagetostart === 0) {
-        if (current_file > 0) {
           this.runrenderquen(
-            this.pdfrender(current_file - 1, pagetostart === 3)
+            this.pdfrender(
+              current_file + 1,
+              pagetoend === Math.ceil(this.pageoffile / 2)
+            )
           );
         }
       }
-    },
-    isloading: function(val, oldval) {
-      this.$emit("loading", val);
+      if (pagetostart > Math.ceil(this.pageoffile / 2) || pagetostart === 0) {
+        if (current_file > 0) {
+          this.runrenderquen(
+            this.pdfrender(
+              current_file - 1,
+              pagetostart === Math.ceil(this.pageoffile / 2)
+            )
+          );
+        }
+      }
     },
     IDSrc: function(val, oldval) {
       this.resetviewer();
@@ -364,7 +398,7 @@ export default {
   z-index: 10;
 }
 .loading {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
@@ -413,5 +447,11 @@ export default {
 }
 .btn:hover {
   background-color: rgb(112, 206, 231);
+}
+
+.pdf-w {
+  overflow-y: auto;
+  -webkit-box-sizing: content-box;
+  box-sizing: content-box;
 }
 </style>
