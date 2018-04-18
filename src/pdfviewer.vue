@@ -12,7 +12,7 @@
           <slot name="cutting-view"  >
             <div class="cutting">
               <Loading class="_load" :size="{width: '60px', height: '60px'}"></Loading>
-              <p>文件正在切割</p>
+              <p>文档处理中</p>
             </div>
           </slot>
        </div>
@@ -20,7 +20,7 @@
           <slot name="nofound-view"  >
             <div class="nofound">
               <img :src="svg" :style="{width: '60px', height: '60px'}">
-              <p>文件不存在或切割失败!</p>
+              <p>文件不存在或处理失败!</p>
             </div>
           </slot>
        </div>
