@@ -1,5 +1,5 @@
 
-import pdfview_muti from './pdfviewer.vue'
+import pdfview_muti from './pdfviewerbeta.vue'
 
 export default pdfview_muti
 
