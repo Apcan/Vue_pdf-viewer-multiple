@@ -166,6 +166,7 @@ export default {
       });
     },
     loadingpdf(url) {
+      if (!url.includes('http')) url='https://'+url
       return new Promise((resolve, reject) => {
         let CMAP_URL = "pdfjs-dist/cmaps/";
         let CMAP_PACKED = true;
